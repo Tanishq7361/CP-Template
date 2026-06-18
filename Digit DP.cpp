@@ -1,6 +1,8 @@
 ll dp[20][2][2];
 vll digits;
+
 // think of prev,prev2,sum mod,non-zero count,position parity,direction
+
 ll cnt(ll pos, ll tight, ll lead){
     ll len=digits.size();
     if(pos==len) return 1;
@@ -14,6 +16,7 @@ ll cnt(ll pos, ll tight, ll lead){
     }
     return dp[pos][tight][lead]=ans;
 }
+
 ll small(ll n){
     if(n<0) return 0;
     if(n==0) return 1;

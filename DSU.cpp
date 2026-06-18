@@ -2,6 +2,7 @@
 
 vector<ll>par,sze,edge,val;
 ll component;
+
 void dsuready(ll n){
     par.resize(n+1); sze.resize(n+1,1);
     edge.resize(n+1); val.resize(n+1);
