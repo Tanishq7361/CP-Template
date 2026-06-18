@@ -12,6 +12,24 @@ using ordered_map = tree<key, value, cmp, rb_tree_tag, tree_order_statistics_nod
 // .order_of_key(k) returns count of elements strictly smaller than k;
 //  less->less_equal for ordered multiset
 
+struct custom_hash{ //to avoid TLE due to collision in unordered_map
+    static uint64_t splitmix64(uint64_t x){
+        x += 0x9e3779b97f4a7c15;
+        x = (x ^ (x>>30)) * 0xbf58476d1ce4e5b9;
+        x = (x ^ (x>>27)) * 0x94d049bb133111eb;
+        return x ^ (x>>31);
+    }
+    size_t operator()(uint64_t x) const{
+        static const uint64_t FIXED_RANDOM = chrono::steady_clock::now().time_since_epoch().count();
+        return splitmix64(x + FIXED_RANDOM);
+    }
+    template<typename L, typename R>
+    size_t operator()(pair<L,R> const& Y) const{
+        static const uint64_t FIXED_RANDOM = chrono::steady_clock::now().time_since_epoch().count();
+        return splitmix64(Y.first * 31 + Y.second + FIXED_RANDOM);
+    }
+};
+
 const long long MAXX=1e18 +13;
 const long long MOD=1e9 +7;
 const long long MOD1=998244353;
@@ -285,54 +303,39 @@ struct Hashing{
 
 //------------------------------DSU------------------------------//
 
-class DSU{
-private:
-    vector<ll>par,size,edge,rank,dist,val;
-    ll count;
-public:
-    DSU(ll n){
-        par.resize(n+1);size.assign(n+1,1);
-        rank.resize(n+1);edge.resize(n+1);
-        dist.resize(n+1);count=n;
-        val.resize(n+1);
-        iota(par.begin(),par.end(),0);
+vector<ll>par,sze,edge,val;
+ll component;
+void dsuready(ll n){
+    par.resize(n+1); sze.resize(n+1,1);
+    edge.resize(n+1); val.resize(n+1);
+    iota(par.begin(),par.end(),0ll);
+    component=n;
+}
+
+ll find(ll x){
+    if(x!=par[x]){
+        ll p=par[x];
+        par[x]=find(par[x]);
+        val[x]^=val[p];
     }
-    ll find(ll x){
-        if(x!=par[x]){
-            ll p=par[x];
-            par[x]=find(par[x]);
-            dist[x]+=dist[p];
-            val[x]^=val[p];
-        }
-        return par[x];
-    }
-    bool unitebysize(ll x,ll y){
-        ll ox=x,oy=y;
-        x=find(x),y=find(y);
-        if(x==y){edge[x]++; return false;}//condn for parity
-        if(size[x]<size[y]){swap(x,y); swap(ox,oy);}
-        par[y]=x; size[x]+=size[y];
-        dist[y]=1;
-        val[y]=val[ox]^val[oy];//^edge-weight
-        edge[x]+=edge[y]+1;
-        count--;
-        return true;
-    }
-    bool unitebyrank(ll x,ll y){
-        x=find(x),y=find(y);
-        if(x==y){edge[x]++; return false;}
-        if(rank[x]<rank[y]){swap(x,y);}
-        par[y]=x; dist[y]=1;
-        size[x]+=size[y];
-        if(rank[x]==rank[y]){rank[x]++;}
-        edge[x]+=edge[y]+1;
-        count--;
-        return true;
-    }
-    ll compoCount(){return count;}
-    ll getSize(ll x){return size[find(x)];}
-    ll getEdgeCount(ll x){return edge[find(x)];}
-};
+    return par[x];
+}
+
+bool unite(ll x, ll y){
+    ll prevx=x,prevy=y;
+    x=par[x]; y=par[y];
+    if(x==y) {edge[x]++; return false;}
+    if(sze[x]<sze[y]) {swap(x,y); swap(prevx,prevy);}
+    par[y]=x; sze[x]+=sze[y];
+    val[y]=val[prevx]^val[prevy];//^edge-weight
+    edge[x]+=edge[y]+1;
+    component--;
+    return true;
+}
+
+ll getsz(ll x) { return sze[find(x)];}
+ll edgecnt(ll x) { return edge[find(x)];}
+
 //-------------------------------------------------------------------------//
 
 //-------------------------------------Matrix Exponentiation----------------------------//
@@ -551,37 +554,35 @@ void opt_sieve(ll n){
 //-----------------------------------------------------------------//
 
 //------------------------------Computing------------------------------//
-class calc{
-private:
-    ll mod;
-    vector<ll>pfact,invpfact,der;
-public:
-    calc(ll n, ll p):mod(p){
-        pfact.resize(n+1,1),invpfact.resize(n+1,1),der.resize(n+1);
-        for(int i=1;i<=n;i++){pfact[i]=(pfact[i-1]*i)%mod;}
-        invpfact[n]=modinv(pfact[n],mod);
-        for(int i=n-1;i>=1;i--){invpfact[i]=(invpfact[i+1]*(i+1))%mod;}
-        if(n>=2) der[2]=1;
-        for(int i=3;i<=n;i++){der[i]=((i-1)*(der[i-1]+der[i-2])%mod)%mod;}
-    }
 
-    ll ncr(ll n, ll r){
-        if(r>n || r<0) return 0;
-        return (((pfact[n]*invpfact[r])%mod)*invpfact[n-r])%mod;
-    }
-    ll npr(ll n, ll r){
-        if(r>n || r<0) return 0;
-        return (pfact[n]*invpfact[n-r])%mod;
-    }
-    ll getpfact(ll n){return pfact[n];}
-    ll getinvpfact(ll n){return invpfact[n];}
-    ll getder(ll n){return der[n];}
-    ll rust(ll n, ll r){
-        if(r<0 || r>n) return 0;
-        if(n==0 || r==0) return 1;
-        return ncr(n%mod,r%mod)*rust(n/mod,r/mod)%mod;
-    }
-};
+ll modc;
+vector<ll>pfact,invpfact,der;
+
+void precompute(ll n, ll modc){
+    pfact.resize(n+1,1),invpfact.resize(n+1,1),der.resize(n+1);
+    for(int i=1;i<=n;i++){pfact[i]=(pfact[i-1]*i)%modc;}
+    invpfact[n]=modinv(pfact[n],modc);
+    for(int i=n-1;i>=1;i--){invpfact[i]=(invpfact[i+1]*(i+1))%modc;}
+    if(n>=2) der[2]=1;
+    for(int i=3;i<=n;i++){der[i]=((i-1)*(der[i-1]+der[i-2])%modc)%modc;}
+}
+ll ncr_mod(ll n, ll r){
+    if(r>n || r<0) return 0;
+    return (((pfact[n]*invpfact[r])%modc)*invpfact[n-r])%modc;
+}
+ll npr(ll n, ll r){
+    if(r>n || r<0) return 0;
+    return (pfact[n]*invpfact[n-r])%modc;
+}
+ll getpfact(ll n){return pfact[n];}
+ll getinvpfact(ll n){return invpfact[n];}
+ll getder(ll n){return der[n];}
+ll rust(ll n, ll r){
+    if(r<0 || r>n) return 0;
+    if(n==0 || r==0) return 1;
+    return ncr_mod(n%modc,r%modc)*rust(n/modc,r/modc)%modc;
+}
+
 //-------------------------------------------------------------------------//
 
 //---------------------------------------Fenwick Tree------------------------------------//
